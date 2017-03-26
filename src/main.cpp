@@ -39,6 +39,8 @@
 #include <exception>
 #include <stdio.h>
 
+#ifndef PHANTOM_LIBRARY_TARGET
+
 static int inner_main(int argc, char** argv)
 {
     QApplication app(argc, argv);
@@ -105,3 +107,134 @@ int main(int argc, char** argv)
         return 1;
     }
 }
+
+#else
+
+#include <QtPlugin>
+
+Q_IMPORT_PLUGIN(PhantomIntegrationPlugin)
+
+extern "C" {
+
+int phantomjs_runscript(
+            void *phantom,
+            const char *script
+            );
+
+int phantomrelease(void *pphantom, int crashed);
+
+int phantomjs(
+            int argc,
+            char** argv,
+            emitDataCallback emitcb,
+            void *cookie,
+            void **pphantom
+            );
+
+void marlin_printf(const char *format, ...);
+
+}
+
+int phantomjs_runscript(void *hphantom, const char *script)
+{
+    Phantom *phantom;
+    QString qss(script);
+    int retVal;
+
+    phantom = (Phantom *)hphantom;
+    if (phantom != Phantom::instance()) {
+        // ensure open instance is this
+        return -1;
+    }
+    // set script file, all else remains the same
+    phantom->setScriptName(qss);
+
+    retVal = (phantom->execute() == false)  ? -1 : 0;
+    return retVal;
+}
+
+int phantomrelease(void *pphantom, int crashed)
+{
+    Phantom *phantom = (Phantom*)pphantom;
+    int retVal;
+
+    if (phantom->getInRelease())
+        return 0;
+    phantom->setInRelease();
+
+    retVal = phantom->returnValue();
+
+    // if the user passed a callback function, but it wasn't called
+    // do that now so they know this is over.  Typically the user's
+    // callback function IS the caller of this, but that's OK.  We
+    // still protect against that by not doing this if in this call
+    // recursively
+    //
+    phantom->ensureCallback(crashed);
+
+    delete phantom;
+    return retVal;
+}
+
+int phantomjs(int argc, char** argv, emitDataCallback emitcb, void *cookie, void **pphantom)
+{
+    try {
+        Phantom *phantom;
+
+        // Registering an alternative Message Handler
+        qInstallMessageHandler(Utils::messageHandler);
+
+    #if defined(Q_OS_LINUX)
+        if (QSslSocket::supportsSsl()) {
+            // Don't perform on-demand loading of root certificates on Linux
+            QSslSocket::addDefaultCaCertificates(QSslSocket::systemCaCertificates());
+        }
+    #endif
+
+        QString prg(argv[0]);
+        QStringList list(prg);
+        int argdex;
+
+        // convert args to a string list
+        for (argdex = 1; argdex < argc; argdex++)
+            list = list << QString(argv[argdex]);
+
+        // create the phantom instance
+        phantom = new Phantom(0, &list, emitcb, cookie);
+
+        // set this instance as singleton
+        phantom->setInstance(phantom);
+
+        // Start script execution, it will run while app runs
+        // in context of caller after this returns
+        phantom->init();
+        *pphantom = phantom;
+        return (phantom->execute() == false)  ? -1 : 0;
+
+        // These last-ditch exception handlers write to the C stderr
+        // because who knows what kind of state Qt is in.  And they avoid
+        // using fprintf because _that_ might be in bad shape too.
+        // (I would drop all the way down to write() but then I'd have to
+        // write the code again for Windows.)
+        //
+        // print_crash_message includes a call to fflush(stderr).
+    } catch (std::bad_alloc) {
+        fputs("Memory exhausted.\n", stderr);
+        fflush(stderr);
+        return 1;
+
+    } catch (std::exception& e) {
+        fputs("Uncaught C++ exception: ", stderr);
+        fputs(e.what(), stderr);
+        putc('\n', stderr);
+        print_crash_message();
+        return 1;
+
+    } catch (...) {
+        fputs("Uncaught nonstandard exception.\n", stderr);
+        print_crash_message();
+        return 1;
+    }
+}
+
+#endif

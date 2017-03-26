@@ -77,11 +77,11 @@ def which(program):
     return None
 
 # returns the path to the QMake executable which gets built in our internal QtBase fork
-def qmakePath():
+def qmakePath(buildpath):
     exe = "qmake"
     if platform.system() == "Windows":
         exe += ".exe"
-    return os.path.abspath("src/qt/qtbase/bin/" + exe)
+    return os.path.abspath(buildpath + "/src/qt/qtbase/bin/" + exe)
 
 # returns paths for 3rd party libraries (Windows only)
 def findThirdPartyDeps():
@@ -145,8 +145,8 @@ class PhantomJSBuilder(object):
         return self.execute(self.makeCommand, path)
 
     # run qmake in the specified path
-    def qmake(self, path, options):
-        qmake = qmakePath()
+    def qmake(self, buildpath, path, options):
+        qmake = qmakePath(self.options.build_prefix)
         # verify that qmake was properly built
         if not isExe(qmake) and not self.options.dry_run:
             raise RuntimeError("Could not find QMake executable: %s" % qmake)
@@ -155,7 +155,8 @@ class PhantomJSBuilder(object):
             command.extend(self.options.qmake_args)
         if options:
             command.extend(options)
-        return self.execute(command, path)
+        command.extend([path])
+        return self.execute(command, buildpath)
 
     # returns a list of platform specific Qt Base configure options
     def platformQtConfigureOptions(self):
@@ -240,7 +241,9 @@ class PhantomJSBuilder(object):
     def configureQtBase(self):
         print("configuring Qt Base, please wait...")
 
-        configureExe = os.path.abspath("src/qt/qtbase/configure")
+        buildRoot = self.options.build_prefix + "/src/qt/qtbase"
+        srcRoot = root + "/src/qt/qtwebkit"
+        configureExe = os.path.abspath(root + "/src/qt/qtbase/configure")
         if platform.system() == "Windows":
             configureExe += ".bat"
 
@@ -248,8 +251,8 @@ class PhantomJSBuilder(object):
             "-static",
             "-opensource",
             "-confirm-license",
-            # we use an in-source build for now and never want to install
-            "-prefix", os.path.abspath("src/qt/qtbase"),
+            # we never want to install, but can put build results anywhere
+           "-prefix", buildRoot,
             # use the bundled libraries, vs. system-installed ones
             "-qt-zlib",
             "-qt-libpng",
@@ -284,7 +287,18 @@ class PhantomJSBuilder(object):
             # build Release by default
             configure.append("-release")
 
-        if self.execute(configure, "src/qt/qtbase") != 0:
+        if self.options.build_library:
+            configure.append("-D")
+            configure.append("PHANTOM_LIBRARY_TARGET")
+
+        if self.options.enable_timing_extensions:
+            configure.append("-D")
+            configure.append("PHANTOM_TIMING_EXTENSIONS")
+
+        if buildRoot != srcRoot:
+            if not os.path.exists(buildRoot):
+                os.makedirs(buildRoot)
+        if self.execute(configure, buildRoot) != 0:
             raise RuntimeError("Configuration of Qt Base failed.")
 
     # build Qt Base
@@ -294,13 +308,14 @@ class PhantomJSBuilder(object):
             return
 
         if self.options.git_clean_qtbase:
-            self.gitClean("src/qt/qtbase")
+            self.gitClean(self.options.build_prefix)
 
         if self.options.git_clean_qtbase or not self.options.skip_configure_qtbase:
             self.configureQtBase()
 
         print("building Qt Base, please wait...")
-        if self.make("src/qt/qtbase") != 0:
+        buildRoot = self.options.build_prefix + "/src/qt/qtbase"
+        if self.make(buildRoot) != 0:
             raise RuntimeError("Building Qt Base failed.")
 
     # build Qt WebKit
@@ -312,8 +327,10 @@ class PhantomJSBuilder(object):
         if self.options.git_clean_qtwebkit:
             self.gitClean("src/qt/qtwebkit")
 
-        os.putenv("SQLITE3SRCDIR", os.path.abspath("src/qt/qtbase/src/3rdparty/sqlite"))
+        os.putenv("SQLITE3SRCDIR", os.path.abspath(root + "/src/qt/qtbase/src/3rdparty/sqlite"))
 
+        buildRoot = self.options.build_prefix + "/src/qt/qtwebkit"
+        srcRoot = root + "/src/qt/qtwebkit"
         print("configuring Qt WebKit, please wait...")
         configureOptions = [
             # disable some webkit features we do not need
@@ -327,20 +344,36 @@ class PhantomJSBuilder(object):
         ]
         if self.options.webkit_qmake_args:
             configureOptions.extend(self.options.webkit_qmake_args)
-        if self.qmake("src/qt/qtwebkit", configureOptions) != 0:
+        if buildRoot != srcRoot:
+            if not os.path.exists(buildRoot):
+                os.makedirs(buildRoot)
+        if self.qmake(buildRoot, srcRoot, configureOptions) != 0:
             raise RuntimeError("Configuration of Qt WebKit failed.")
 
         print("building Qt WebKit, please wait...")
-        if self.make("src/qt/qtwebkit") != 0:
+        if self.make(buildRoot) != 0:
             raise RuntimeError("Building Qt WebKit failed.")
 
     # build PhantomJS
     def buildPhantomJS(self):
         print("Configuring PhantomJS, please wait...")
-        if self.qmake(".", self.options.phantomjs_qmake_args) != 0:
+        buildRoot = self.options.build_prefix
+        srcRoot = root
+
+        if self.options.build_library:
+            if self.options.phantomjs_qmake_args == None:
+                self.options.phantomjs_qmake_args = []
+            self.options.phantomjs_qmake_args.append("DEFINES+=PHANTOM_LIBRARY_TARGET");
+
+        if self.options.enable_timing_extensions:
+            if self.options.phantomjs_qmake_args == None:
+                self.options.phantomjs_qmake_args = []
+            self.options.phantomjs_qmake_args.append("DEFINES+=PHANTOM_TIMING_EXTENSIONS");
+
+        if self.qmake(buildRoot, srcRoot, self.options.phantomjs_qmake_args) != 0:
             raise RuntimeError("Configuration of PhantomJS failed.")
         print("Building PhantomJS, please wait...")
-        if self.make(".") != 0:
+        if self.make(buildRoot) != 0:
             raise RuntimeError("Building PhantomJS failed.")
 
     # ensure the git submodules are all available
@@ -386,6 +419,13 @@ def parseArguments():
                             help="Additional arguments that will be passed to the PhantomJS QMake call.")
     advanced.add_argument("--qt-config", type=str, action="append",
                             help="Additional arguments that will be passed to Qt Base configure.")
+    advanced.add_argument("--build-prefix", type=str, action="store", default=root,
+                            help="Place build results and install in the directory specified.\n"
+                                  "default is build in source tree " + root)
+    advanced.add_argument("--build-library", action="store_true",
+                            help="Build phantomjs as a library, not an application.\n")
+    advanced.add_argument("--enable-timing-extensions", action="store_true",
+                            help="Include extended and more accurate timing of page loading and ssl.\n")
     advanced.add_argument("--git-clean-qtbase", action="store_true",
                             help="Run git clean in the Qt Base folder.\n"
                                  "ATTENTION: This will remove all untracked files!")

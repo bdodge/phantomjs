@@ -118,13 +118,18 @@ private slots:
     void handleSslErrors(const QList<QSslError>& errors);
     void handleNetworkError();
     void handleTimeout();
-
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    void handleConnectionStats(quint64 topened, quint64 tresolved, quint64 tconnected, quint64 tssl, quint64 tsent, quint64 trecv, quint64 tdone);
+#endif
 private:
     void prepareSslConfiguration(const Config* config);
     QVariantList getHeadersFromReply(const QNetworkReply* reply);
 
     QHash<QNetworkReply*, int> m_ids;
     QSet<QNetworkReply*> m_started;
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    QSet<QNetworkReply*> m_timed;
+#endif
     int m_idCounter;
     QNetworkDiskCache* m_networkDiskCache;
     QVariantMap m_customHeaders;

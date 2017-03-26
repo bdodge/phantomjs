@@ -44,12 +44,26 @@ class WebPage;
 class CustomPage;
 class WebServer;
 
+#ifdef PHANTOM_LIBRARY_TARGET
+// callback type for emitting log data to caller in running as library
+extern "C"
+{
+    typedef void (*emitDataCallback)(void *cookie, int type, const char *data);
+}
+#endif
+
 class Phantom : public QObject
 {
     Q_OBJECT
+#ifdef PHANTOM_LIBRARY_TARGET
+    Q_PROPERTY(QStringList args READ args)
+#endif
     Q_PROPERTY(QVariantMap defaultPageSettings READ defaultPageSettings)
     Q_PROPERTY(QString libraryPath READ libraryPath WRITE setLibraryPath)
     Q_PROPERTY(QString outputEncoding READ outputEncoding WRITE setOutputEncoding)
+#ifdef PHANTOM_LIBRARY_TARGET
+    Q_PROPERTY(QString scriptName READ scriptName)
+#endif
     Q_PROPERTY(QVariantMap version READ version)
     Q_PROPERTY(QObject* page READ page)
     Q_PROPERTY(bool cookiesEnabled READ areCookiesEnabled WRITE setCookiesEnabled)
@@ -57,15 +71,28 @@ class Phantom : public QObject
     Q_PROPERTY(bool webdriverMode READ webdriverMode)
     Q_PROPERTY(int remoteDebugPort READ remoteDebugPort)
 
+#ifdef PHANTOM_LIBRARY_TARGET
+public:
+    // Phantom class is a global
+    Phantom(QObject *parent = 0, QStringList *specarg = 0, emitDataCallback emitCallback = 0, void *emitUserData = 0);
+    void init();
+#else
 private:
     // Private constructor: the Phantom class is a singleton
     Phantom(QObject* parent = 0);
     void init();
+#endif
 
 public:
     static Phantom* instance();
     virtual ~Phantom();
 
+#ifdef PHANTOM_LIBRARY_TARGET
+    QStringList args() const;
+
+    QString scriptName() const;
+    void setScriptName(QString& scriptName);
+#endif
     QVariantMap defaultPageSettings() const;
 
     QString outputEncoding() const;
@@ -213,6 +240,43 @@ public slots:
      */
     QString fullyDecodeUrl(QString url);
 
+#ifdef PHANTOM_LIBRARY_TARGET
+    /**
+     * relay a message to caller
+     * @brief emitData
+     * @param QString message which is utf encoded and appended to m_logBuffer
+     */
+    void emitData(int type, const QString &messsge);
+
+    /**
+     * if no message emitted yet, emit <cancelled> so caller waiting on message
+     * can continue on
+     * @brief ensureCallback
+     */
+    void ensureCallback(int crashed);
+
+    /**
+     * accessor function to get object being released
+     */
+    void setInRelease(void) { m_inrelease = true; }
+
+    /**
+     * accessor function to set object being released
+     */
+    bool getInRelease(void) { return m_inrelease; }
+
+    /**
+     * sets global singleton instance from instance of this object
+     */
+    static void setInstance(Phantom *phantom);
+#endif
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    /**
+     * wait for all paint messages to be handled
+     */
+    void waitRends(void);
+#endif
+
 signals:
     void aboutToExit(int code);
 
@@ -237,7 +301,13 @@ private:
     QList<QPointer<WebServer> > m_servers;
     Config m_config;
     CookieJar* m_defaultCookieJar;
-
+#ifdef PHANTOM_LIBRARY_TARGET
+    emitDataCallback m_emitCallback;
+    void *m_emitCookie;
+    bool m_didemit;
+    bool m_inrelease;
+    bool m_didpaint;
+#endif
     friend class CustomPage;
 };
 

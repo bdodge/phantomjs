@@ -52,6 +52,7 @@ qrc_*
 *.lib
 *.prl
 *.intermediate.manifest
+*.bak
 
 # Build results
 [Dd]ebug*/

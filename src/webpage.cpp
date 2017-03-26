@@ -359,6 +359,8 @@ WebPage::WebPage(QObject* parent, const QUrl& baseUrl)
     , m_shouldInterruptJs(false)
 {
     setObjectName("WebPage");
+    m_mainFrameLoadStarted = 0;
+    m_mainFrameLoadFinished = 0;
     m_callbacks = new WebpageCallbacks(this);
     m_customWebPage = new CustomPage(this);
     Config* phantomCfg = Phantom::instance()->config();
@@ -386,12 +388,31 @@ WebPage::WebPage(QObject* parent, const QUrl& baseUrl)
     // (no parameter == main frame) but we make sure to do the setup only once.
     //
     // @see WebPage::setupFrame(QWebFrame *) for details.
+#ifndef PHANTOM_LIBRARY_TARGET
     connect(m_mainFrame, SIGNAL(loadFinished(bool)), this, SLOT(setupFrame()), Qt::QueuedConnection);
     connect(m_customWebPage, SIGNAL(frameCreated(QWebFrame*)), this, SLOT(setupFrame(QWebFrame*)), Qt::DirectConnection);
     connect(m_mainFrame, SIGNAL(javaScriptWindowObjectCleared()), this, SLOT(setupFrame()));
+#else
+    // BDD - this isn't really related to library target, it is really a bug/issue in the base
+    // implementation.  The problem is created web pages have QWebFrames that self-destroy, and that
+    // destruction can happen before a queued signal is exectuted which causes random crashes.  Here
+    // the signal is handled inline (not queued) and this also splits the setupframe into two separate
+    // functions, one or frames and one for mainframes (not argument) instead of relying on a NULL
+    // default parm.  This disambiguation is helpful in debugging
+    connect(m_mainFrame, SIGNAL(loadStarted()), this, SLOT(switchToMainFrame()), Qt::QueuedConnection);
+    connect(m_mainFrame, SIGNAL(loadFinished(bool)), this, SLOT(setupMainFrame()), Qt::QueuedConnection);
+    connect(m_customWebPage, SIGNAL(frameCreated(QWebFrame*)), this, SLOT(setupFrame(QWebFrame*))/* Note NOT: , Qt::QueuedConnection*/);
+    connect(m_mainFrame, SIGNAL(javaScriptWindowObjectCleared()), this, SLOT(setupMainFrame()));
+#endif
+#ifndef PHANTOM_TIMING_EXTENSIONS
+    connect(m_customWebPage, SIGNAL(loadStarted()), SIGNAL(loadStarted()), Qt::QueuedConnection);
+#else
+    // note loadstarted signal is handled inline and passes through a local function
+    // to get a proper start-time stamp
+    connect(m_customWebPage, SIGNAL(loadStarted()), SLOT(newLoadStarted()));
+#endif
     connect(m_mainFrame, SIGNAL(javaScriptWindowObjectCleared()), SIGNAL(initialized()));
     connect(m_mainFrame, SIGNAL(urlChanged(QUrl)), this, SLOT(handleUrlChanged(QUrl)));
-    connect(m_customWebPage, SIGNAL(loadStarted()), SIGNAL(loadStarted()), Qt::QueuedConnection);
     connect(m_customWebPage, SIGNAL(loadFinished(bool)), SLOT(finish(bool)), Qt::QueuedConnection);
     connect(m_customWebPage, SIGNAL(windowCloseRequested()), this, SLOT(close()), Qt::QueuedConnection);
     connect(m_customWebPage, SIGNAL(loadProgress(int)), this, SLOT(updateLoadingProgress(int)));
@@ -814,11 +835,32 @@ void WebPage::javascriptInterrupt()
     }
 }
 
+#ifndef PHANTOM_TIMING_EXTENSIONS
 void WebPage::finish(bool ok)
 {
     QString status = ok ? "success" : "fail";
     emit loadFinished(status);
 }
+#else
+void WebPage::newLoadStarted()
+{
+    if (m_mainFrameLoadStarted == 0)
+    {
+        m_mainFrameLoadStarted = QDateTime::currentMSecsSinceEpoch();
+    }
+    emit loadStarted();
+}
+
+void WebPage::finish(bool ok)
+{
+    QString status = ok ? "success" : "fail";
+
+    if (m_mainFrameLoadFinished == 0) {
+        m_mainFrameLoadFinished = QDateTime::currentMSecsSinceEpoch();
+    }
+    emit loadFinished(status, m_mainFrameLoadStarted, m_mainFrameLoadFinished);
+}
+#endif
 
 void WebPage::setCustomHeaders(const QVariantMap& headers)
 {
@@ -1737,6 +1779,16 @@ void WebPage::setupFrame(QWebFrame* frame)
     // Inject the Callbacks object in the main frame
     injectCallbacksObjIntoFrame(frame == NULL ? m_mainFrame : frame, m_callbacks);
 }
+
+#ifdef PHANTOM_LIBRARY_TARGET
+void WebPage::setupMainFrame()
+{
+    qDebug() << "WebPage - setupMainFrame";
+
+    // Inject the Callbacks object in the main frame
+    injectCallbacksObjIntoFrame(m_mainFrame, m_callbacks);
+}
+#endif
 
 void WebPage::updateLoadingProgress(int progress)
 {

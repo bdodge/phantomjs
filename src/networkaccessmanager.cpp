@@ -174,9 +174,19 @@ NetworkAccessManager::NetworkAccessManager(QObject* parent, const Config* config
         if (config->maxDiskCacheSize() >= 0) {
             m_networkDiskCache->setMaximumCacheSize(qint64(config->maxDiskCacheSize()) * 1024);
         }
+#ifdef PHANTOM_TIMING_EXTENSIONS
+        if (config->diskCacheStartEmpty()) {
+            qDebug() << "Clearing disk cache";
+            m_networkDiskCache->clear();
+        }
+#endif
         setCache(m_networkDiskCache);
     }
-
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    else {
+        qDebug() << "No disk cache";
+    }
+#endif
     if (QSslSocket::supportsSsl()) {
         prepareSslConfiguration(config);
     }
@@ -305,6 +315,10 @@ void NetworkAccessManager::setCookieJar(QNetworkCookieJar* cookieJar)
 // protected:
 QNetworkReply* NetworkAccessManager::createRequest(Operation op, const QNetworkRequest& request, QIODevice* outgoingData)
 {
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    // get creation timestamp as early as possible
+    quint64 timeAtCreation = QDateTime::currentMSecsSinceEpoch();
+#endif
     QNetworkRequest req(request);
     QString scheme = req.url().scheme().toLower();
 
@@ -353,8 +367,14 @@ QNetworkReply* NetworkAccessManager::createRequest(Operation op, const QNetworkR
     data["method"] = toString(op);
     data["headers"] = headers;
     if (op == QNetworkAccessManager::PostOperation) { data["postData"] = postData.data(); }
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    // put in creation stamp in msecs format too and make sure
+    // time agrees with creation
+    data["time"] = QDateTime::fromMSecsSinceEpoch(timeAtCreation);
+    data["created"] = timeAtCreation;
+#else
     data["time"] = QDateTime::currentDateTime();
-
+#endif
     JsNetworkRequest jsNetworkRequest(&req, this);
     emit resourceRequested(data, &jsNetworkRequest);
 
@@ -391,6 +411,10 @@ QNetworkReply* NetworkAccessManager::createRequest(Operation op, const QNetworkR
     connect(reply, SIGNAL(sslErrors(const QList<QSslError>&)), this, SLOT(handleSslErrors(const QList<QSslError>&)));
     connect(reply, SIGNAL(error(QNetworkReply::NetworkError)), this, SLOT(handleNetworkError()));
 
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    connect(reply, SIGNAL(connectionStats(quint64, quint64, quint64, quint64, quint64, quint64, quint64)),
+            this, SLOT(handleConnectionStats(quint64, quint64, quint64, quint64, quint64, quint64, quint64)));
+#endif
     return reply;
 }
 
@@ -441,6 +465,66 @@ void NetworkAccessManager::handleStarted()
     emit resourceReceived(data);
 }
 
+#ifdef PHANTOM_TIMING_EXTENSIONS
+void NetworkAccessManager::handleConnectionStats(quint64 topened, quint64 tresolved,
+        quint64 tconnected, quint64 tssl, quint64 tsent, quint64 trecv, quint64 tdone)
+{
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) {
+        qDebug() << "NO REPLY";
+        return;
+    }
+    if (m_timed.contains(reply)) {
+        //qDebug() << "REPLY ------ already known " << reply;
+        return;
+    }
+    m_timed += reply;
+
+    qint64 compressed = reply->compressedBytes();
+    qint64 totalbytes = reply->totalBytes();
+    //qint64 readbytes = reply->readBytes();
+  /*
+    qDebug() << "reply ------------------- " << reply <<
+         "open  " << topened <<
+         "  dns " << tresolved <<
+         " conn " << tconnected <<
+         "  ssl " << tssl <<
+         " send " << tsent <<
+         " recv " << trecv <<
+         " done " << tdone
+        ;
+  */
+    QVariantList headers;
+    foreach (QByteArray headerName, reply->rawHeaderList()) {
+        QVariantMap header;
+        header["name"] = QString::fromUtf8(headerName);
+        header["value"] = QString::fromUtf8(reply->rawHeader(headerName));
+        headers += header;
+    }
+    QVariantMap data;
+
+
+    data["stage"] = "connected";
+    data["id"] = m_ids.value(reply);
+    data["status"] = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+    data["statusText"] = reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute);
+    data["contentType"] = reply->header(QNetworkRequest::ContentTypeHeader);
+    data["bodySize"] = totalbytes;
+    data["compressedSize"] = compressed > 0 ? compressed : totalbytes;
+    data["headers"] = headers;
+
+    data["opened"] = topened;
+    data["resolved"] = tresolved;
+    data["connected"] = tconnected;
+    data["ssl"] = tssl;
+    data["sent"] = tsent;
+    data["recv"] = trecv;
+    data["done"] = tdone;
+
+    emit resourceReceived(data);
+}
+#endif
+
 void NetworkAccessManager::handleFinished(QNetworkReply* reply)
 {
     if (!m_ids.contains(reply)) {
@@ -482,6 +566,9 @@ void NetworkAccessManager::handleFinished(QNetworkReply* reply, const QVariant& 
 
     m_ids.remove(reply);
     m_started.remove(reply);
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    m_timed.remove(reply);
+#endif
     reply->deleteLater();
 
     emit resourceReceived(data);

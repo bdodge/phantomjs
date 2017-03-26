@@ -51,9 +51,28 @@
 #include "cookiejar.h"
 #include "childprocess.h"
 
+#ifdef PHANTOM_TIMING_EXTENSIONS
+// need a static function from here to set connection count
+//#include <private/qhttpnetworkconnection_p.h>
+extern void _phantom_setCurrentHttpChannelCount(int count);
+#endif
+
 static Phantom* phantomInstance = NULL;
 
 // private:
+#ifdef PHANTOM_LIBRARY_TARGET
+Phantom::Phantom(QObject *parent, QStringList *specargs, emitDataCallback emitCallback, void *emitUserData)
+    : QObject(parent)
+    , m_terminated(false)
+    , m_returnValue(0)
+    , m_filesystem(0)
+    , m_system(0)
+    , m_childprocess(0)
+    , m_emitCallback(emitCallback)
+    , m_emitCookie(emitUserData)
+    , m_didemit(false)
+    , m_inrelease(false)
+#else
 Phantom::Phantom(QObject* parent)
     : QObject(parent)
     , m_terminated(false)
@@ -61,9 +80,18 @@ Phantom::Phantom(QObject* parent)
     , m_filesystem(0)
     , m_system(0)
     , m_childprocess(0)
+#endif
 {
+#ifdef PHANTOM_LIBRARY_TARGET
+    // if running as a library, arguments come from caller not command line
+    QStringList args;
+if (! specargs)
+        args = QApplication::arguments();
+    else
+        args = *specargs;
+#else
     QStringList args = QApplication::arguments();
-
+#endif
     // Prepare the configuration object based on the command line arguments.
     // Because this object will be used by other classes, it needs to be ready ASAP.
     m_config.init(&args);
@@ -73,6 +101,54 @@ Phantom::Phantom(QObject* parent)
 
 void Phantom::init()
 {
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    // Apply global web settings from config to adjust cache/pages/etc
+    QWebSettings* settings = QWebSettings::globalSettings();
+    if (settings)
+    {
+        int maxsize;
+        int minsize;
+        int growsize;
+
+        //settings->setAttribute(QWebSettings::PluginsEnabled, false);
+        //settings->setAttribute(QWebSettings::AcceleratedCompositingEnabled, true);
+
+        // enable popup blocker
+        //settings->setAttribute(QWebSettings::JavascriptCanOpenWindows, false);
+
+        // adjust cache settings
+        //
+        maxsize = m_config.maxMemCacheSize();
+        minsize = 0x100000; // 1 Mb
+        if (maxsize < minsize)
+            minsize = maxsize;
+        growsize = (maxsize - minsize) / 4;
+        if (growsize < minsize)
+            growsize = minsize;
+
+        if (maxsize > 0) {
+            // wanting to use ram cache
+            if (m_config.memCacheStartEmpty()) {
+                qDebug() << "Clearing object cache";
+                settings->clearMemoryCaches();
+            }
+            settings->setMaximumPagesInCache(4); // TODO - make this a paramter?
+            settings->setObjectCacheCapacities(minsize, growsize, maxsize);
+        }
+        else {
+            // disable (which clears) ram cache
+            qDebug() << "Disabling object cache";
+            settings->setMaximumPagesInCache(0);
+            settings->setObjectCacheCapacities(0x0, 0x0, 0x0);
+        }
+    }
+    // set max concurrent connections per host
+    //
+    //QHttpNetworkConnectionPrivate::setHttpChannelCount(m_config.maxParallelConnections());
+    _phantom_setCurrentHttpChannelCount(m_config.maxParallelConnections());
+
+#endif // PHANTOM_TIMING_EXTENSIONS
+
     if (m_config.helpFlag()) {
         Terminal::instance()->cout(QString("%1").arg(m_config.helpText()));
         Terminal::instance()->cout("Any of the options that accept boolean values ('true'/'false') can also accept 'yes'/'no'.");
@@ -134,7 +210,14 @@ void Phantom::init()
     m_defaultPageSettings[PAGE_SETTINGS_LOAD_IMAGES] = QVariant::fromValue(m_config.autoLoadImages());
     m_defaultPageSettings[PAGE_SETTINGS_JS_ENABLED] = QVariant::fromValue(true);
     m_defaultPageSettings[PAGE_SETTINGS_XSS_AUDITING] = QVariant::fromValue(false);
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    // allow config user agent setting to override page's
+    m_config.userAgent().isEmpty() ?
+            QVariant::fromValue(m_page->userAgent())
+        :   m_config.userAgent();
+#else
     m_defaultPageSettings[PAGE_SETTINGS_USER_AGENT] = QVariant::fromValue(m_page->userAgent());
+#endif
     m_defaultPageSettings[PAGE_SETTINGS_LOCAL_ACCESS_REMOTE] = QVariant::fromValue(m_config.localToRemoteUrlAccessEnabled());
     m_defaultPageSettings[PAGE_SETTINGS_WEB_SECURITY_ENABLED] = QVariant::fromValue(m_config.webSecurityEnabled());
     m_defaultPageSettings[PAGE_SETTINGS_JS_CAN_OPEN_WINDOWS] = QVariant::fromValue(m_config.javascriptCanOpenWindows());
@@ -157,6 +240,12 @@ Phantom* Phantom::instance()
 Phantom::~Phantom()
 {
     // Nothing to do: cleanup is handled by QObject relationships
+#ifdef PHANTOM_LIBRARY_TARGET
+    // clear singleton instance to allow it to be recreated
+    if (this == phantomInstance) {
+        phantomInstance = NULL;
+    }
+#endif
 }
 
 QVariantMap Phantom::defaultPageSettings() const
@@ -255,6 +344,62 @@ void Phantom::setLibraryPath(const QString& libraryPath)
 {
     m_page->setLibraryPath(libraryPath);
 }
+
+#ifdef PHANTOM_LIBRARY_TARGET
+void Phantom::setInstance(Phantom *phantom) {
+    if (phantomInstance && phantom) {
+        qWarning() << "Setting second global instance of phantom";
+    }
+    phantomInstance = phantom;
+}
+
+QStringList Phantom::args() const
+{
+    return m_config.scriptArgs();
+}
+
+QString Phantom::scriptName() const
+{
+    // get current script filename
+    return QFileInfo(m_config.scriptFile()).fileName();
+}
+
+void Phantom::setScriptName(QString& script)
+{
+    // set script file to run
+    m_config.setScriptFile(script);
+}
+
+void Phantom::emitData(int type, const QString &message)
+{
+#if 1 // bdd export data to log
+    m_didemit = true;
+    if (m_emitCallback)
+    {
+        int mlen = message.length();
+        char *cmsg = (char*)malloc(mlen * 3 + 2);
+
+        strcpy(cmsg, message.toUtf8().constData());
+
+        m_emitCallback(m_emitCookie, type, cmsg);
+
+        free(cmsg);
+    }
+#endif
+}
+
+void Phantom::ensureCallback(int crashed)
+{
+    if (! m_didemit) {
+        if (crashed) {
+            emitData(0, "<crashed>");
+        }
+        else {
+            emitData(0, "<cancelled>");
+        }
+    }
+}
+#endif // PHANTOM_LIBRARY_TARGET
 
 QVariantMap Phantom::version() const
 {
@@ -515,6 +660,27 @@ void Phantom::clearCookies()
     m_defaultCookieJar->clearCookies();
 }
 
+#ifdef PHANTOM_TIMING_EXTENSIONS
+
+// on exit, there could still be pages being rendered to wait for
+// all paint events to be processed (lazy wait)
+
+#include <QTime>
+
+void Phantom::waitRends()
+{
+    QTime dieTime = QTime::currentTime().addMSecs(1000);
+    int loopcount = 0;
+
+    while( QTime::currentTime() < dieTime ) {
+        m_didpaint = false;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+        if (m_didpaint && loopcount++ < 10) {
+            dieTime = QTime::currentTime().addMSecs(100);
+        }
+    }
+}
+#endif // PHANTOM_TIMING_EXTENSIONS
 
 // private:
 void Phantom::doExit(int code)

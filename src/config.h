@@ -47,6 +47,7 @@ class Config: public QObject
     Q_PROPERTY(QString diskCachePath READ diskCachePath WRITE setDiskCachePath)
     Q_PROPERTY(bool ignoreSslErrors READ ignoreSslErrors WRITE setIgnoreSslErrors)
     Q_PROPERTY(bool localUrlAccessEnabled READ localUrlAccessEnabled WRITE setLocalUrlAccessEnabled)
+    Q_PROPERTY(bool ignoreSslErrors READ ignoreSslErrors WRITE setIgnoreSslErrors)
     Q_PROPERTY(bool localToRemoteUrlAccessEnabled READ localToRemoteUrlAccessEnabled WRITE setLocalToRemoteUrlAccessEnabled)
     Q_PROPERTY(QString outputEncoding READ outputEncoding WRITE setOutputEncoding)
     Q_PROPERTY(QString proxyType READ proxyType WRITE setProxyType)
@@ -71,7 +72,17 @@ class Config: public QObject
     Q_PROPERTY(QString webdriverLogFile READ webdriverLogFile WRITE setWebdriverLogFile)
     Q_PROPERTY(QString webdriverLogLevel READ webdriverLogLevel WRITE setWebdriverLogLevel)
     Q_PROPERTY(QString webdriverSeleniumGridHub READ webdriverSeleniumGridHub WRITE setWebdriverSeleniumGridHub)
-
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    Q_PROPERTY(QString userAgent READ userAgent WRITE setUserAgent)
+    Q_PROPERTY(bool diskCacheStartEmpty READ diskCacheStartEmpty WRITE setDiskCacheStartEmpty)
+    Q_PROPERTY(bool memCacheStartEmpty READ memCacheStartEmpty WRITE setMemCacheStartEmpty)
+    Q_PROPERTY(int maxMemCacheSize READ maxMemCacheSize WRITE setMaxMemCacheSize)
+    Q_PROPERTY(bool clearCookiesOnStart READ clearCookiesOnStart WRITE setClearCookiesOnStart)
+    Q_PROPERTY(int maxParallelConnections READ maxParallelConnections WRITE setMaxParallelConnections)
+    Q_PROPERTY(bool renderPage READ renderPage WRITE setRenderPage)
+    Q_PROPERTY(int renderPageWidth READ renderPageWidth WRITE setRenderPageWidth)
+    Q_PROPERTY(int renderPageHeight READ renderPageHeight WRITE setRenderPageHeight)
+#endif
 public:
     Config(QObject* parent = 0);
 
@@ -208,6 +219,34 @@ public:
     void setWebdriverSeleniumGridHub(const QString& hubUrl);
     QString webdriverSeleniumGridHub() const;
 
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    QString userAgent() const;
+    void setUserAgent(const QString &userAgent);
+
+    bool diskCacheStartEmpty() const;
+    void setDiskCacheStartEmpty(const bool value);
+
+    bool memCacheStartEmpty() const;
+    void setMemCacheStartEmpty(const bool value);
+
+    int maxMemCacheSize() const;
+    void setMaxMemCacheSize(int maxMemCacheSize);
+
+    bool clearCookiesOnStart() const;
+    void setClearCookiesOnStart(const bool value);
+
+    int maxParallelConnections() const;
+    void setMaxParallelConnections(int maxParallelConnections);
+
+    void setRenderPage(const bool value);
+    bool renderPage() const;
+
+    void setRenderPageWidth(const int value);
+    int renderPageWidth() const;
+
+    void setRenderPageHeight(const int value);
+    int renderPageHeight() const;
+#endif
 public slots:
     void handleSwitch(const QString& sw);
     void handleOption(const QString& option, const QVariant& value);
@@ -267,6 +306,17 @@ private:
     QString m_webdriverLogFile;
     QString m_webdriverLogLevel;
     QString m_webdriverSeleniumGridHub;
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    QString m_userAgent;
+    bool m_diskCacheStartEmpty;
+    bool m_memCacheStartEmpty;
+    int m_maxMemCacheSize;
+    bool m_clearCookiesOnStart;
+    int m_maxParallelConnections;
+    bool m_renderPage;
+    int  m_renderPageWidth;
+    int  m_renderPageHeight;
+#endif
 };
 
 #endif // CONFIG_H

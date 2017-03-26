@@ -85,6 +85,18 @@ static const struct QCommandLineConfigEntry flags[] = {
     { QCommandLine::Switch, 'w', "wd", "Equivalent to '--webdriver' option above", QCommandLine::Optional },
     { QCommandLine::Switch, 'h', "help", "Shows this message and quits", QCommandLine::Optional },
     { QCommandLine::Switch, 'v', "version", "Prints out PhantomJS version", QCommandLine::Optional },
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    { QCommandLine::Option, '\0', "pwd", "Sets the application directoy", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "user-agent", "Sets the user-agent string", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "render", "Render pages as loaded as if they are for display: 'yes' or 'no' (default)", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "renderw", "Width for rendering, if rendering", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "renderh", "Height for rendering, if rendering", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "mem-cache-start-clear", "Clears memory cache before network access: 'yes' or 'no' (default)", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "clear-cookies", "Clears cookies at start: 'yes' or 'no' (default)", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "max-mem-cache-size", "Limits the size of the dead object memory cache (in bytes)", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "max-parallel-connections", "Limits simultaneous connections per host, <=0 means use default", QCommandLine::Optional },
+    { QCommandLine::Option, '\0', "ignore-ssl-errors", "Ignores SSL errors (expired/self-signed certificate errors): 'yes' or 'no' (default)", QCommandLine::Optional },
+#endif
     QCOMMANDLINE_CONFIG_ENTRY_END
 };
 
@@ -575,6 +587,100 @@ QString Config::webdriverSeleniumGridHub() const
     return m_webdriverSeleniumGridHub;
 }
 
+#ifdef PHANTOM_TIMING_EXTENSIONS
+
+QString Config::userAgent() const
+{
+    return m_userAgent;
+}
+
+void Config::setUserAgent(const QString &value)
+{
+    m_userAgent = value;
+}
+
+bool Config::diskCacheStartEmpty() const
+{
+    return m_diskCacheStartEmpty;
+}
+
+void Config::setDiskCacheStartEmpty(const bool value)
+{
+    m_diskCacheStartEmpty = value;
+}
+
+bool Config::memCacheStartEmpty() const
+{
+    return m_memCacheStartEmpty;
+}
+
+void Config::setMemCacheStartEmpty(const bool value)
+{
+    m_memCacheStartEmpty = value;
+}
+
+int Config::maxMemCacheSize() const
+{
+    return m_maxMemCacheSize;
+}
+
+void Config::setMaxMemCacheSize(int maxMemCacheSize)
+{
+    m_maxMemCacheSize = maxMemCacheSize;
+}
+
+void Config::setClearCookiesOnStart(const bool value)
+{
+    m_clearCookiesOnStart = value;
+}
+
+bool Config::clearCookiesOnStart() const
+{
+    return m_clearCookiesOnStart;
+}
+
+int Config::maxParallelConnections() const
+{
+    return m_maxParallelConnections;
+}
+
+void Config::setMaxParallelConnections(int maxParallelConnections)
+{
+    m_maxParallelConnections = maxParallelConnections;
+}
+
+bool Config::renderPage() const
+{
+    return m_renderPage;
+}
+
+void Config::setRenderPage(const bool value)
+{
+    m_renderPage = value;
+}
+
+int Config::renderPageWidth() const
+{
+    return m_renderPageWidth;
+}
+
+void Config::setRenderPageWidth(const int value)
+{
+    m_renderPageWidth = value;
+}
+
+int Config::renderPageHeight() const
+{
+    return m_renderPageHeight;
+}
+
+void Config::setRenderPageHeight(const int value)
+{
+    m_renderPageHeight = value;
+}
+
+#endif
+
 // private:
 void Config::resetToDefaults()
 {
@@ -639,6 +745,17 @@ void Config::resetToDefaults()
     m_webdriverLogFile = QString();
     m_webdriverLogLevel = "INFO";
     m_webdriverSeleniumGridHub = QString();
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    m_userAgent = QString();
+    m_diskCacheStartEmpty = false;
+    m_memCacheStartEmpty = false;
+    m_maxMemCacheSize = 0;
+    m_clearCookiesOnStart = false;
+    m_maxParallelConnections = -1;
+    m_renderPage = false;
+    m_renderPageWidth = 1024;
+    m_renderPageHeight = 640;
+#endif
 }
 
 void Config::setProxyAuthPass(const QString& value)
@@ -704,6 +821,12 @@ void Config::handleOption(const QString& option, const QVariant& value)
     booleanFlags << "local-to-remote-url-access";
     booleanFlags << "remote-debugger-autorun";
     booleanFlags << "web-security";
+#ifdef PHANTOM_TIMING_EXTENSIONS
+    booleanFlags << "render";
+    booleanFlags << "disk-cache-start-clear";
+    booleanFlags << "mem-cache-start-clear";
+    booleanFlags << "clear-cookies";
+#endif
     if (booleanFlags.contains(option)) {
         if ((value != "true") && (value != "yes") && (value != "false") && (value != "no")) {
             setUnknownOption(QString("Invalid values for '%1' option.").arg(option));
@@ -834,6 +957,45 @@ void Config::handleOption(const QString& option, const QVariant& value)
     if (option == "webdriver-selenium-grid-hub") {
         setWebdriverSeleniumGridHub(value.toString());
     }
+#ifdef PHANTOM_TIMING_EXTENSIONS
+
+    if (option == "user-agent") {
+        setUserAgent(value.toString());
+    }
+
+    if (option == "disk-cache-start-clear") {
+        setDiskCacheStartEmpty(boolValue);
+    }
+
+    if (option == "mem-cache-start-clear") {
+        setMemCacheStartEmpty(boolValue);
+    }
+
+    if (option == "max-mem-cache-size") {
+        setMaxMemCacheSize(value.toInt());
+    }
+
+    if (option == "clear-cookies") {
+        setClearCookiesOnStart(boolValue);
+    }
+
+    if (option == "max-parallel-connections") {
+        setMaxParallelConnections(value.toInt());
+    }
+
+    if (option == "render") {
+        setRenderPage(boolValue);
+    }
+
+    if (option == "renderw") {
+        setRenderPageWidth(value.toInt());
+    }
+
+    if (option == "renderh") {
+        setRenderPageHeight(value.toInt());
+    }
+
+ #endif
 }
 
 void Config::handleParam(const QString& param, const QVariant& value)

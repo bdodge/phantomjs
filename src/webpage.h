@@ -486,7 +486,11 @@ public slots:
 signals:
     void initialized();
     void loadStarted();
+#ifndef PHANTOM_TIMING_EXTENSIONS
     void loadFinished(const QString& status);
+#else
+    void loadFinished(const QString& status, quint64 startTime, quint64 endTime);
+#endif
     void javaScriptAlertSent(const QString& msg);
     void javaScriptConsoleMessageSent(const QString& message);
     void javaScriptErrorSent(const QString& msg, int lineNumber, const QString& sourceID, const QString& stack);
@@ -501,8 +505,12 @@ signals:
     void repaintRequested(const int x, const int y, const int width, const int height);
 
 private slots:
+    void newLoadStarted(void);
     void finish(bool ok);
     void setupFrame(QWebFrame* frame = NULL);
+#ifdef PHANTOM_LIBRARY_TARGET
+    void setupMainFrame(void);
+#endif
     void updateLoadingProgress(int progress);
     void handleRepaintRequested(const QRect& dirtyRect);
     void handleUrlChanged(const QUrl& url);
@@ -540,6 +548,8 @@ private:
     WebpageCallbacks* m_callbacks;
     bool m_navigationLocked;
     QPoint m_mousePos;
+    quint64 m_mainFrameLoadStarted;
+    quint64 m_mainFrameLoadFinished;
     bool m_ownsPages;
     int m_loadingProgress;
     bool m_shouldInterruptJs;
