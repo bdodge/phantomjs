@@ -35,8 +35,12 @@
 #include "encoding.h"
 
 #ifdef PHANTOM_LIBRARY_TARGET
+#ifdef Q_OS_ANDROID
 extern "C"
 void broms_printf(const char *format, ...);
+#else
+#define broms_printf printf
+#endif
 #endif
 
 class QWebFrame;
