@@ -195,6 +195,7 @@ class PhantomJSBuilder(object):
                 "-no-kms",
                 "-no-linuxfb",
                 "-no-directfb",
+                "-no-mirclient",
                 "-no-mtdev",
                 "-no-libudev",
                 "-no-evdev",
@@ -421,7 +422,7 @@ def parseArguments():
                             help="Additional arguments that will be passed to Qt Base configure.")
     advanced.add_argument("--build-prefix", type=str, action="store", default=root,
                             help="Place build results and install in the directory specified.\n"
-                                  "default is build in source tree " + root)
+                                  "default is build in source tree: " + root)
     advanced.add_argument("--build-library", action="store_true",
                             help="Build phantomjs as a library, not an application.\n")
     advanced.add_argument("--enable-timing-extensions", action="store_true",

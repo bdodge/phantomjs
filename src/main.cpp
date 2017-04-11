@@ -131,8 +131,6 @@ int phantomjs(
             void **pphantom
             );
 
-void marlin_printf(const char *format, ...);
-
 }
 
 int phantomjs_runscript(void *hphantom, const char *script)
@@ -144,6 +142,7 @@ int phantomjs_runscript(void *hphantom, const char *script)
     phantom = (Phantom *)hphantom;
     if (phantom != Phantom::instance()) {
         // ensure open instance is this
+
         return -1;
     }
     // set script file, all else remains the same
@@ -209,7 +208,8 @@ int phantomjs(int argc, char** argv, emitDataCallback emitcb, void *cookie, void
         // in context of caller after this returns
         phantom->init();
         *pphantom = phantom;
-        return (phantom->execute() == false)  ? -1 : 0;
+        int retVal = (phantom->execute() == false)  ? -1 : 0;
+        return retVal;
 
         // These last-ditch exception handlers write to the C stderr
         // because who knows what kind of state Qt is in.  And they avoid
@@ -219,20 +219,16 @@ int phantomjs(int argc, char** argv, emitDataCallback emitcb, void *cookie, void
         //
         // print_crash_message includes a call to fflush(stderr).
     } catch (std::bad_alloc) {
-        fputs("Memory exhausted.\n", stderr);
-        fflush(stderr);
+        broms_printf("Memory exhausted.\n");
         return 1;
 
     } catch (std::exception& e) {
-        fputs("Uncaught C++ exception: ", stderr);
-        fputs(e.what(), stderr);
-        putc('\n', stderr);
-        print_crash_message();
+        broms_printf("Uncaught C++ exception: ");
+        broms_printf(e.what(), stderr);
         return 1;
 
     } catch (...) {
-        fputs("Uncaught nonstandard exception.\n", stderr);
-        print_crash_message();
+        broms_printf("Uncaught nonstandard exception.\n");
         return 1;
     }
 }

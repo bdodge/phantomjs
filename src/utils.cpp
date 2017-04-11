@@ -92,7 +92,31 @@ void messageHandler(QtMsgType type, const QMessageLogContext& context, const QSt
 {
     Q_UNUSED(context);
     QDateTime now = QDateTime::currentDateTime();
-
+#ifdef PHANTOM_LIBRARY_TARGET
+    switch (type) {
+    case QtDebugMsg:
+        if (printDebugMessages) {
+            broms_printf("%s [DEBUG] %s\n", qPrintable(now.toString(Qt::ISODate)), qPrintable(msg));
+        }
+        break;
+    case QtInfoMsg:
+        if (printDebugMessages) {
+            broms_printf("%s [INFO] %s\n", qPrintable(now.toString(Qt::ISODate)), qPrintable(msg));
+        }
+        break;
+    case QtWarningMsg:
+        if (printDebugMessages) {
+            broms_printf("%s [WARNING] %s\n", qPrintable(now.toString(Qt::ISODate)), qPrintable(msg));
+        }
+        break;
+    case QtCriticalMsg:
+        broms_printf("%s [CRITICAL] %s\n", qPrintable(now.toString(Qt::ISODate)), qPrintable(msg));
+        break;
+    case QtFatalMsg:
+        broms_printf("%s [FATAL] %s\n", qPrintable(now.toString(Qt::ISODate)), qPrintable(msg));
+        abort();
+    }
+#else
     switch (type) {
     case QtDebugMsg:
         if (printDebugMessages) {
@@ -111,6 +135,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext& context, const QSt
         fprintf(stderr, "%s [FATAL] %s\n", qPrintable(now.toString(Qt::ISODate)), qPrintable(msg));
         abort();
     }
+#endif
 }
 
 bool injectJsInFrame(const QString& jsFilePath, const QString& libraryPath, QWebFrame* targetFrame, const bool startingScript)
@@ -120,6 +145,7 @@ bool injectJsInFrame(const QString& jsFilePath, const QString& libraryPath, QWeb
 
 bool injectJsInFrame(const QString& jsFilePath, const QString& jsFileLanguage, const Encoding& jsFileEnc, const QString& libraryPath, QWebFrame* targetFrame, const bool startingScript)
 {
+broms_printf("xxxx %s\n", qPrintable(jsFilePath));
     // Don't do anything if an empty string is passed
     QString scriptPath = findScript(jsFilePath, libraryPath);
     QString scriptBody = jsFromScriptFile(scriptPath, jsFileLanguage, jsFileEnc);
@@ -129,8 +155,10 @@ bool injectJsInFrame(const QString& jsFilePath, const QString& jsFileLanguage, c
         } else {
             qWarning("Can't open '%s'", qPrintable(jsFilePath));
         }
+broms_printf("xxxx no script\n");
         return false;
     }
+broms_printf("xxxx ok\n");
     // Execute JS code in the context of the document
     targetFrame->evaluateJavaScript(scriptBody, QString(JAVASCRIPT_SOURCE_CODE_URL).arg(QFileInfo(scriptPath).fileName()));
     return true;

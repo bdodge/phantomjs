@@ -34,6 +34,11 @@
 #include <QtGlobal>
 #include "encoding.h"
 
+#ifdef PHANTOM_LIBRARY_TARGET
+extern "C"
+void broms_printf(const char *format, ...);
+#endif
+
 class QWebFrame;
 
 /**
